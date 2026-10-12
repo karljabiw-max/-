@@ -146,7 +146,8 @@ with wave.open(out, 'wb') as w:
     w.writeframes((st * 32767).astype('<i2').tobytes())
 
 # 波形自检（听不到，就看）
-rms = np.sqrt(np.convolve((st ** 2).mean(1), np.ones(SR) / SR, 'valid')[::SR // 2])
+half = SR // 2
+rms = np.sqrt((st[: len(st) // half * half] ** 2).mean(1).reshape(-1, half).mean(1))  # 每半秒 RMS
 print('峰值', round(float(np.abs(st).max()), 3), '每半秒 RMS 最小/最大', round(float(rms.min()), 4), round(float(rms.max()), 4))
 quiet = [i / 2 for i, v in enumerate(rms) if v < .01]
 print('静音段(秒):', quiet[:10], '...' if len(quiet) > 10 else '')
