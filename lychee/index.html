@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>《一骑红尘》· Vibe知识大赏</title>
+<link rel="stylesheet" href="../video/fonts/fonts.css">
+<style>
+  html,body{margin:0;background:#050510;overflow:hidden}
+  canvas{display:block;width:1920px;height:1080px}
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script id="main">
+// 《一骑红尘》—— 一颗荔枝，要跑多远？
+// 画面只由 t（秒）决定：window.render(t)。无计时器、无帧间状态、随机数固定种子。
+const W = 1920, H = 1080, DUR = 135;
+const AUTHOR = '@karljabiw';
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const C = {
+  bg0: '#050510', bg1: '#12122a', fg: '#EAEAF2', gray: '#8A8AA0', gold: '#C9A96A',
+  paper: '#EDE4D3', ink: '#2a2420', red: '#B53A2F', warm: '#E8A87C', blue: '#7FA7D9',
+};
+const F = { sans: '"Noto Sans SC", "WenQuanYi Zen Hei", sans-serif', serif: '"Noto Serif SC", serif', gar: '"EB Garamond", serif' };
+
+// ---------- 数学工具 ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const back = x => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const lerp = (a, b, p) => a + (b - a) * p;
+// 时间窗包络：a 时淡入，b 时淡出
+const win = (t, a, b, fi = .5, fo = .5) => Math.min(eio(prog(t, a, a + fi)), 1 - eio(prog(t, b - fo, b)));
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- 绘图工具 ----------
+function font(o) { return `${o.it ? 'italic ' : ''}${o.w || 400} ${o.s || 32}px ${o.f || F.sans}`; }
+function txt(s, x, y, o = {}) {
+  ctx.save();
+  ctx.globalAlpha *= (o.a ?? 1);
+  ctx.font = font(o);
+  ctx.fillStyle = o.c || C.fg;
+  ctx.textAlign = o.al || 'center';
+  ctx.textBaseline = o.bl || 'middle';
+  ctx.letterSpacing = (o.ls || 0) + 'px';
+  if (o.glow) { ctx.shadowColor = o.glow; ctx.shadowBlur = o.gb || 30; }
+  ctx.fillText(s, x, y);
+  ctx.restore();
+}
+// 「」内的关键词用金色
+function rich(s, x, y, o = {}) {
+  ctx.save();
+  ctx.globalAlpha *= (o.a ?? 1);
+  ctx.font = font(o);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const segs = []; let cur = '', hi = false;
+  for (const ch of s) {
+    if (ch === '「') { if (cur) segs.push([cur, hi]); cur = ch; hi = true; continue; }
+    if (ch === '」') { cur += ch; segs.push([cur, true]); cur = ''; hi = false; continue; }
+    cur += ch;
+  }
+  if (cur) segs.push([cur, hi]);
+  const total = segs.reduce((w, [s]) => w + ctx.measureText(s).width, 0);
+  let cx = x - total / 2;
+  for (const [sg, h] of segs) { ctx.fillStyle = h ? C.gold : (o.c || C.fg); ctx.fillText(sg, cx, y); cx += ctx.measureText(sg).width; }
+  ctx.restore();
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function withA(a, fn) { if (a <= 0.001) return; ctx.save(); ctx.globalAlpha *= a; fn(); ctx.restore(); }
+function at(x, y, s, rot, fn) { ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot); if (s !== 1) ctx.scale(s, s); fn(); ctx.restore(); }
+
+// ---------- 背景 ----------
+const R0 = rng(7);
+const STARS = Array.from({ length: 240 }, () => ({ x: R0() * W, y: R0() * H, r: .4 + R0() * 1.4, w: .3 + R0() * 1.6, p: R0() * 6.28, b: .15 + R0() * .5 }));
+const DUST = Array.from({ length: 40 }, () => ({ x: R0() * W, y: R0() * H, r: 1 + R0() * 2.5, vx: (R0() - .5) * 8, vy: -2 - R0() * 6, b: .05 + R0() * .12 }));
+function drawBG(t) {
+  const g = ctx.createRadialGradient(W / 2, H * .42, 80, W / 2, H * .45, 1150);
+  g.addColorStop(0, '#14142e'); g.addColorStop(.55, '#0b0b1d'); g.addColorStop(1, C.bg0);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const s of STARS) {
+    const a = s.b * (.55 + .45 * Math.sin(t * s.w + s.p));
+    ctx.fillStyle = `rgba(220,220,255,${a})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+  }
+  for (const d of DUST) {
+    const x = ((d.x + d.vx * t) % W + W) % W, y = ((d.y + d.vy * t) % H + H) % H;
+    ctx.fillStyle = `rgba(201,169,106,${d.b})`;
+    ctx.beginPath(); ctx.arc(x, y, d.r, 0, 6.283); ctx.fill();
+  }
+}
+
+// ---------- 字幕 / 标签 / 注释 ----------
+const TAGS = [
+  [0, 14.3, '一颗荔枝 · ONE LYCHEE'],
+  [20.4, 36.4, '天宝 · 长安 · 742–756'],
+  [36.4, 44.4, '杜牧 ·《过华清宫》'],
+  [44.4, 52.4, '白居易 ·《荔枝图序》'],
+  [52.4, 92.4, '它从哪儿来 · WHERE FROM'],
+  [92.4, 108.4, '驿道 · THE POST ROAD'],
+  [108.4, 124.4, '755 · 756'],
+  [124.4, 135.5, '声明与参考 · NOTES'],
+];
+const SUBS = [
+  [0.6, 4.0, '一颗荔枝，摘下来能放几天？', 'How long does a lychee last once picked?'],
+  [4.1, 7.5, '一日色变，二日香变，三日味变', 'Day one, color. Day two, scent. Day three, taste.'],
+  [7.6, 11.0, '可偏偏有人，要在长安吃到新鲜的', 'Yet someone wanted them fresh, in Chang’an.'],
+  [11.1, 14.4, '隔着几千里，怎么做到？', 'Thousands of li away. How?'],
+  [20.6, 24.4, '唐天宝年间，杨贵妃爱吃荔枝', 'In the Tianbao years, Consort Yang loved lychees.'],
+  [24.5, 28.4, '《新唐书》写：「必欲生致之」', 'The New Book of Tang: she must have them fresh.'],
+  [28.5, 32.4, '于是「置骑传送，走数千里」', 'So riders relayed them, thousands of li.'],
+  [32.5, 36.4, '送到长安时，「味未变」', 'They arrived with the taste unchanged.'],
+  [36.5, 40.4, '后来，杜牧路过华清宫，写下一首诗', 'Later, passing Huaqing Palace, Du Mu wrote a poem.'],
+  [40.5, 44.4, '一骑红尘妃子笑，无人知是荔枝来', 'A rider in red dust, she smiles. No one knows: lychees.'],
+  [44.5, 48.4, '先看荔枝本身：白居易在忠州亲手记过', 'First, the fruit. Bai Juyi wrote it down in Zhongzhou.'],
+  [48.5, 52.4, '四五天以后，「色香味尽去」', 'After four or five days, everything is gone.'],
+  [52.5, 56.4, '那么，这些荔枝从哪儿来？', 'So where did the lychees come from?'],
+  [56.5, 60.4, '一说岭南，一说巴蜀的涪州', 'Some say Lingnan. Some say Fuzhou, in Sichuan.'],
+  [60.5, 64.4, '唐代驿马，平常一天走七十里', 'A Tang post horse: seventy li a day, normally.'],
+  [64.5, 68.4, '最急的赦书，一天五百里', 'The most urgent edicts: five hundred li a day.'],
+  [68.5, 72.4, '岭南远隔数千里，最快也要六天以上', 'Lingnan, thousands of li away: six days at best.'],
+  [72.5, 76.4, '史学家严耕望认为：岭南鲜荔，到不了长安', 'Historian Yan Gengwang: Lingnan lychees couldn’t make it.'],
+  [76.5, 80.4, '涪州有条「荔枝道」，约两千二百四十里', 'From Fuzhou ran the Lychee Road: about 2,240 li.'],
+  [80.5, 84.4, '按一天五百里，四天半', 'At five hundred li a day: four and a half days.'],
+  [84.5, 88.4, '刚好擦着「色香味尽去」的边', 'Right at the edge of spoiling.'],
+  [88.5, 92.4, '苏轼也写：「天宝岁贡取之涪」', 'Su Shi agreed: the Tianbao tribute came from Fu.'],
+  [92.5, 96.4, '唐制，大约三十里设一座驿站', 'Under Tang rules, a station about every thirty li.'],
+  [96.5, 100.4, '两千多里，就是七十多座驿站', 'Two thousand li: seventy-odd stations.'],
+  [100.5, 104.4, '一站换一匹马，一程换一个人', 'A fresh horse at every station. A fresh rider too.'],
+  [104.5, 108.4, '诗里的「一骑」，其实是一整条驿道', 'The “one rider” was a whole road.'],
+  [108.5, 112.4, '天宝十四载，安史之乱爆发', 'In 755, the An Lushan Rebellion broke out.'],
+  [112.5, 116.4, '第二年，杨贵妃死在了马嵬驿', 'A year later, Consort Yang died at Mawei Station.'],
+  [116.5, 120.4, '为她送来荔枝的，是驿道', 'The post road brought her lychees.'],
+  [120.5, 124.4, '她最后停下的地方，也是一座驿站', 'Where she stopped, too, was a post station.'],
+  [124.6, 128.4, '荔枝究竟从哪儿来，至今仍有争议', 'Where they came from is still debated.'],
+  [128.6, 134.6, '如果是你，会为一颗荔枝跑多远？', 'How far would you run for a lychee?'],
+];
+const NOTES = [
+  [24.8, 36.4, '《新唐书 · 后妃传》原文 · 图为示意'],
+  [40.6, 44.4, '杜牧（803–852）·《过华清宫绝句三首》其一'],
+  [44.8, 52.4, '白居易《荔枝图序》，作于忠州刺史任上'],
+  [53.0, 68.4, '示意地图 · 路线为大致走向'],
+  [68.6, 72.4, '按日行五百里的最快驿速估算 · 示意'],
+  [76.8, 84.4, '据《太平寰宇记》· 唐一里约合今 530 米'],
+  [88.6, 92.4, '苏轼《荔支叹》：「永元荔支来交州，天宝岁贡取之涪」'],
+  [96.6, 104.4, '2240 ÷ 30 ≈ 75 · 示意'],
+  [112.6, 116.4, '马嵬驿 · 今陕西兴平'],
+];
+
+// ---------- 道具 ----------
+function lychee(x, y, r, fresh = 1, rot = 0) {
+  at(x, y, 1, rot, () => {
+    const red = [200, 50, 60], brown = [110, 62, 44];
+    const c = red.map((v, i) => Math.round(lerp(brown[i], v, fresh)));
+    ctx.fillStyle = `rgb(${c})`;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.clip();
+    ctx.fillStyle = `rgba(0,0,0,${.18 + (1 - fresh) * .15})`;
+    const s = r / 5;
+    for (let gy = -r; gy <= r; gy += s * 1.6) for (let gx = -r; gx <= r; gx += s * 1.8) {
+      const ox = (Math.round(gy / (s * 1.6)) % 2) * s * .9;
+      ctx.beginPath(); ctx.arc(gx + ox, gy, s * .55, 0, 6.283); ctx.fill();
+    }
+    const g = ctx.createRadialGradient(-r * .35, -r * .4, 1, 0, 0, r);
+    g.addColorStop(0, `rgba(255,220,200,${.35 * fresh})`); g.addColorStop(1, 'rgba(0,0,0,.25)');
+    ctx.fillStyle = g; ctx.fillRect(-r, -r, 2 * r, 2 * r);
+    ctx.restore();
+    ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = Math.max(2, r * .08); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -r * .95); ctx.quadraticCurveTo(r * .1, -r * 1.3, r * .35, -r * 1.45); ctx.stroke();
+    ctx.fillStyle = `rgb(${Math.round(lerp(120, 70, fresh))},${Math.round(lerp(110, 140, fresh))},${Math.round(lerp(60, 70, fresh))})`;
+    ctx.beginPath(); ctx.ellipse(r * .55, -r * 1.4, r * .5, r * .2, -.4, 0, 6.283); ctx.fill();
+  });
+}
+// 竖排古籍：cols 用 | 分列，自右向左
+function vtext(cols, x, y, o = {}) {
+  const size = o.s || 34, gap = o.gap || size * 1.5;
+  cols.split('|').forEach((col, ci) => {
+    [...col].forEach((ch, k) => {
+      const hi = o.hi && o.hi.includes(ch) && (!o.hiCol || o.hiCol.includes(ci));
+      txt(ch, x - ci * gap, y + k * size * 1.12, { s: size, w: o.w || 700, f: F.serif, c: hi ? C.red : (o.c || C.ink) });
+    });
+  });
+}
+function palace(x, y, s, a = 1) {
+  withA(a, () => at(x, y, s, 0, () => {
+    ctx.strokeStyle = C.gold; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(201,169,106,.07)';
+    // 台基
+    ctx.beginPath(); ctx.rect(-260, 60, 520, 34); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-60, 94); ctx.lineTo(-90, 140); ctx.lineTo(90, 140); ctx.lineTo(60, 94); ctx.stroke();
+    // 柱
+    for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * 62, -40); ctx.lineTo(i * 62, 60); ctx.stroke(); }
+    // 屋檐（起翘）
+    ctx.beginPath(); ctx.moveTo(-300, -36); ctx.quadraticCurveTo(-230, -50, -200, -80); ctx.lineTo(200, -80); ctx.quadraticCurveTo(230, -50, 300, -36);
+    ctx.quadraticCurveTo(260, -40, 240, -44); ctx.lineTo(-240, -44); ctx.quadraticCurveTo(-260, -40, -300, -36); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-200, -80); ctx.quadraticCurveTo(-120, -130, -60, -150); ctx.lineTo(60, -150); ctx.quadraticCurveTo(120, -130, 200, -80); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-80, -150); ctx.lineTo(80, -150); ctx.moveTo(-90, -158); ctx.quadraticCurveTo(-100, -170, -110, -168); ctx.moveTo(90, -158); ctx.quadraticCurveTo(100, -170, 110, -168); ctx.stroke();
+  }));
+}
+function nameplate(x, y, zh, en, a = 1) {
+  withA(a, () => {
+    ctx.save(); ctx.font = font({ s: 32, w: 700 }); const w = Math.max(ctx.measureText(zh).width + 80, 300); ctx.restore();
+    ctx.fillStyle = 'rgba(18,18,48,.85)'; ctx.strokeStyle = 'rgba(201,169,106,.6)'; ctx.lineWidth = 1.5;
+    rr(x - w / 2, y - 50, w, 100, 8); ctx.fill(); ctx.stroke();
+    txt(zh, x, y - 14, { s: 32, w: 700 });
+    txt(en, x, y + 26, { s: 22, f: F.gar, it: 1, c: C.gray });
+  });
+}
+
+// ---------- 地图 ----------
+const MAP = { k: 50, ox: 560, oy: 110 };
+const P = (lon, lat) => [MAP.ox + (lon - 104) * MAP.k, MAP.oy + (36 - lat) * MAP.k];
+const CITY = { changan: P(108.94, 34.27), fuzhou: P(107.39, 29.70), guang: P(113.26, 23.13), mawei: P(108.43, 34.30), fanyang: P(116.4, 39.9) };
+const ROUTE_FU = [[107.39, 29.70], [107.9, 30.8], [107.5, 31.2], [107.6, 32.2], [107.77, 32.98], [108.3, 33.6], [108.94, 34.27]].map(p => P(...p));
+const ROUTE_LN = [[113.26, 23.13], [113.6, 24.8], [113.0, 25.8], [112.6, 26.9], [113.0, 28.2], [112.2, 30.3], [112.1, 32.0], [109.9, 33.9], [108.94, 34.27]].map(p => P(...p));
+const YANGTZE = [[104.6, 28.8], [105.4, 28.9], [106.5, 29.6], [107.4, 29.7], [108.4, 30.8], [109.6, 31.0], [110.6, 30.9], [111.3, 30.7], [112.2, 30.3], [113.1, 29.6], [114.3, 30.6]].map(p => P(...p));
+const WEI = [[105.7, 34.6], [107.2, 34.4], [108.2, 34.3], [109.0, 34.4], [110.2, 34.6]].map(p => P(...p));
+function polyLen(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; }
+function polyAt(pts, p) {
+  const L = polyLen(pts) * clamp(p); let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + d >= L) { const q = (L - acc) / d; return [lerp(pts[i - 1][0], pts[i][0], q), lerp(pts[i - 1][1], pts[i][1], q)]; }
+    acc += d;
+  }
+  return pts[pts.length - 1];
+}
+function drawPoly(pts, p, style) {
+  ctx.save(); Object.assign(ctx, style);
+  ctx.beginPath(); ctx.moveTo(...pts[0]);
+  const L = polyLen(pts) * clamp(p); let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + d >= L) { const q = (L - acc) / d; ctx.lineTo(lerp(pts[i - 1][0], pts[i][0], q), lerp(pts[i - 1][1], pts[i][1], q)); break; }
+    ctx.lineTo(...pts[i]); acc += d;
+  }
+  ctx.stroke(); ctx.restore();
+}
+function cityDot(c, name, en, o = {}) {
+  const [x, y] = c;
+  ctx.fillStyle = o.c || C.gold; ctx.beginPath(); ctx.arc(x, y, o.r || 8, 0, 6.283); ctx.fill();
+  if (o.pulse) { ctx.strokeStyle = o.c || C.gold; ctx.lineWidth = 2; ctx.globalAlpha *= (1 - o.pulse); ctx.beginPath(); ctx.arc(x, y, 8 + o.pulse * 30, 0, 6.283); ctx.stroke(); ctx.globalAlpha /= Math.max(.001, 1 - o.pulse); }
+  txt(name, x + (o.dx ?? 18), y + (o.dy ?? -4), { s: o.s || 28, w: 700, c: o.tc || C.fg, al: o.al || 'left' });
+  if (en) txt(en, x + (o.dx ?? 18), y + (o.dy ?? -4) + 28, { s: 20, f: F.gar, it: 1, c: C.gray, al: o.al || 'left' });
+}
+function redDust(x, y, t, dirx, diry, n = 14) {
+  const r = rng(Math.floor(t * 30) + 7);
+  for (let i = 0; i < n; i++) {
+    const k = i / n, sp = 10 + k * 70;
+    const px = x - dirx * sp + (r() - .5) * 18 * k, py = y - diry * sp + (r() - .5) * 18 * k - k * 6;
+    ctx.fillStyle = `rgba(214,90,60,${.55 * (1 - k)})`;
+    ctx.beginPath(); ctx.arc(px, py, 2 + k * 5, 0, 6.283); ctx.fill();
+  }
+}
+function rider(pts, p, t, col = C.fg) {
+  const [x, y] = polyAt(pts, p), [x2, y2] = polyAt(pts, Math.min(1, p + .01));
+  const d = Math.hypot(x2 - x, y2 - y) || 1;
+  redDust(x, y, t, (x2 - x) / d, (y2 - y) / d);
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y + Math.sin(t * 18) * 1.5, 7, 0, 6.283); ctx.fill();
+  return [x, y];
+}
+function mapBase(t, a) {
+  withA(a, () => {
+    ctx.strokeStyle = 'rgba(234,234,242,.06)'; ctx.lineWidth = 1;
+    for (let lon = 104; lon <= 118; lon += 2) { const [x] = P(lon, 0); ctx.beginPath(); ctx.moveTo(x, 120); ctx.lineTo(x, 760); ctx.stroke(); }
+    for (let lat = 22; lat <= 36; lat += 2) { const [, y] = P(0, lat); ctx.beginPath(); ctx.moveTo(560, y); ctx.lineTo(1280, y); ctx.stroke(); }
+    drawPoly(YANGTZE, 1, { strokeStyle: 'rgba(127,167,217,.35)', lineWidth: 3, lineCap: 'round', lineJoin: 'round' });
+    drawPoly(WEI, 1, { strokeStyle: 'rgba(127,167,217,.3)', lineWidth: 2 });
+    txt('长江', ...P(110.0, 30.4), { s: 20, c: 'rgba(127,167,217,.6)' });
+    // 秦岭
+    ctx.strokeStyle = 'rgba(201,169,106,.3)'; ctx.lineWidth = 2;
+    for (let i = 0; i < 7; i++) { const [x, y] = P(106.0 + i * .8, 33.7 - Math.sin(i) * .15); ctx.beginPath(); ctx.moveTo(x - 16, y + 10); ctx.lineTo(x, y - 8); ctx.lineTo(x + 16, y + 10); ctx.stroke(); }
+    txt('秦岭', ...P(106.6, 33.05), { s: 20, c: 'rgba(201,169,106,.6)' });
+  });
+}
+
+// ---------- 场景 ----------
+function sceneHook(t) {
+  const a = win(t, 0, 15.2, .5, .9);
+  if (a <= 0) return;
+  withA(a, () => {
+    // 0–4：一颗荔枝
+    const conv = eio(prog(t, 13.6, 15.0));
+    const big = win(t, 0.2, 4.6, .8, .6);
+    withA(big, () => {
+      lychee(960, 440 + Math.sin(t * 1.4) * 6, 120 * lerp(.92, 1, eo(prog(t, .2, 1.2))), 1, Math.sin(t * .7) * .05);
+      withA(eo(prog(t, 1.4, 2.2)), () => {
+        ctx.strokeStyle = 'rgba(201,169,106,.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 8]);
+        ctx.beginPath(); ctx.arc(960, 430, 190 + Math.sin(t * 2) * 4, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+        txt('?  天', 960, 680, { s: 40, w: 700, c: C.gold });
+      });
+    });
+    // 4–7.5：三天三变
+    const tri = win(t, 4.1, 8.0, .5, .6);
+    withA(tri, () => {
+      ['一日', '二日', '三日'].forEach((d, i) => {
+        const p = prog(t, 4.2 + i * 1.0, 4.7 + i * 1.0);
+        if (p <= 0) return;
+        const x = 600 + i * 360;
+        withA(eo(p), () => {
+          lychee(x, 420 + Math.sin(t * 1.2 + i) * 4, 90, 1 - (i + 1) * .3 * eio(prog(t, 4.5 + i, 5.2 + i)), 0);
+          txt(d, x, 580, { s: 40, w: 900, f: F.serif, c: C.gold });
+          txt(['色变', '香变', '味变'][i], x, 636, { s: 32, w: 700 });
+          txt(['color', 'scent', 'taste'][i], x, 676, { s: 22, f: F.gar, it: 1, c: C.gray });
+        });
+      });
+    });
+    // 7.5–15：岭南 → 长安 一条虚线
+    const road = win(t, 7.6, 15.4, .6, .6);
+    withA(road, () => {
+      const y = 430, x0 = 360, x1 = 1560;
+      const p = eio(prog(t, 7.8, 10.6));
+      ctx.strokeStyle = 'rgba(234,234,242,.35)'; ctx.lineWidth = 2; ctx.setLineDash([10, 12]); ctx.lineDashOffset = -t * 30;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(lerp(x0, x1, p), y); ctx.stroke(); ctx.setLineDash([]);
+      lychee(lerp(x0, 960, conv), lerp(y, 470, conv), lerp(46, 20, conv), 1);
+      withA(1 - conv, () => {
+        txt('南方', x0, y + 80, { s: 30, w: 700, c: C.fg }); txt('the south', x0, y + 116, { s: 22, f: F.gar, it: 1, c: C.gray });
+        withA(eo(prog(t, 9.8, 10.6)), () => { palace(x1, y - 20, .32); txt('长安', x1, y + 80, { s: 30, w: 700, c: C.gold }); txt('Chang’an', x1, y + 116, { s: 22, f: F.gar, it: 1, c: C.gray }); });
+        withA(eo(prog(t, 11.2, 12.0)), () => txt('几千里', 960, y - 60, { s: 52, w: 900, f: F.serif, c: C.gold, glow: 'rgba(201,169,106,.5)' }));
+        withA(eo(prog(t, 11.6, 12.4)), () => txt('thousands of li', 960, y - 12, { s: 26, f: F.gar, it: 1, c: C.gray }));
+      });
+    });
+  });
+}
+function sceneTitle(t) {
+  const a = win(t, 14.4, 20.6, .6, .6);
+  withA(a, () => {
+    const p1 = prog(t, 14.5, 15.3), p2 = prog(t, 14.8, 15.8), p3 = prog(t, 15.4, 16.4), p4 = prog(t, 15.8, 16.8);
+    withA(eo(p1), () => txt('VIBE知识大赏', 960, 300, { s: 28, w: 700, c: C.gold, ls: 14, a: .85 }));
+    withA(eo(p2), () => {
+      const s = lerp(1.12, 1, eo(p2)) + Math.sin(t * 1.2) * .005;
+      txt('《一骑红尘》', 960, 450, { s: 150 * s, w: 900, f: F.serif, c: C.gold, glow: 'rgba(201,169,106,.55)', gb: 40 });
+    });
+    // 一道红尘从左掠过
+    const pd = prog(t, 15.0, 17.2);
+    if (pd > 0 && pd < 1) { const x = lerp(300, 1650, eio(pd)); redDust(x, 560, t, 1, 0, 26); ctx.fillStyle = C.fg; ctx.beginPath(); ctx.arc(x, 560, 6, 0, 6.283); ctx.fill(); }
+    const L = 300 * eio(p3);
+    ctx.strokeStyle = 'rgba(201,169,106,.6)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(960 - L, 580); ctx.lineTo(960 + L, 580); ctx.stroke();
+    withA(eo(p3), () => rich('一颗荔枝，要跑多远？', 960, 636, { s: 44, w: 700 }));
+    withA(eo(p4), () => txt('How Far Does a Lychee Run?', 960, 696, { s: 32, f: F.gar, it: 1, c: C.gray }));
+  });
+}
+function sceneTang(t) {
+  const a = win(t, 20.4, 44.8, .7, .7);
+  if (a <= 0) return;
+  withA(a, () => {
+    // 宫殿 + 铭牌
+    const pa = win(t, 20.5, 36.8, .9, .7);
+    const px = lerp(960, 470, eio(prog(t, 24.4, 25.6)));
+    palace(px, 400 + Math.sin(t * .8) * 3, lerp(1, .8, eio(prog(t, 24.4, 25.6))), pa);
+    withA(pa * eo(prog(t, 21.2, 22.0)), () => nameplate(px, 640, '杨玉环 · 杨贵妃', 'Consort Yang · 719–756'));
+    // 新唐书 书影
+    const ca = win(t, 24.5, 37.0, .9, .8);
+    if (ca > 0) {
+      const pIn = eo(prog(t, 24.5, 25.6));
+      withA(ca, () => paperCard(lerp(1700, 1270, pIn), 420 + Math.sin(t * .7) * 4, 520, 470, .03 + Math.sin(t * .5) * .005, 1, () => {
+        txt('新唐书 · 卷七十六', 0, -200, { s: 20, w: 700, f: F.serif, c: '#6b5a45', ls: 4 });
+        ctx.fillStyle = 'rgba(80,60,40,.45)'; ctx.fillRect(-220, -182, 440, 1.5);
+        // 竖排：妃嗜荔支必欲生致之|乃置骑传送走数千里|味未变已至京师
+        const hiStep = t < 28.5 ? '生致之' : t < 32.5 ? '置骑传送走数千里' : '味未变';
+        const cols = '妃嗜荔支|必欲生致之|乃置骑传送|走数千里|味未变|已至京师';
+        let ci = 0;
+        cols.split('|').forEach((col, i) => {
+          [...col].forEach((ch, k) => {
+            const lit = hiStep.includes(ch) && ((hiStep === '生致之' && i === 1) || (hiStep !== '生致之' && hiStep !== '味未变' && (i === 2 || i === 3)) || (hiStep === '味未变' && i === 4));
+            txt(ch, 190 - i * 76, -130 + k * 50, { s: 40, w: 900, f: F.serif, c: lit ? C.red : C.ink });
+          });
+        });
+        seal(-170, 160, '唐书', .8);
+      }));
+    }
+    // 杜牧诗
+    const da = win(t, 36.4, 44.8, .8, .6);
+    if (da > 0) withA(da, () => {
+      const pIn = eo(prog(t, 36.4, 37.6));
+      paperCard(lerp(1050, 1150, pIn), 430 + Math.sin(t * .7) * 4, 600, 470, -.02, 1, () => {
+        txt('过华清宫 · 其一', 0, -200, { s: 22, w: 700, f: F.serif, c: '#6b5a45', ls: 4 });
+        ctx.fillStyle = 'rgba(80,60,40,.45)'; ctx.fillRect(-250, -182, 500, 1.5);
+        const lit = t > 40.5;
+        const cols = ['长安回望绣成堆', '山顶千门次第开', '一骑红尘妃子笑', '无人知是荔枝来'];
+        cols.forEach((col, i) => [...col].forEach((ch, k) => {
+          const p = prog(t, 37.2 + i * .5 + k * .05, 37.6 + i * .5 + k * .05);
+          const hi = lit && i >= 2;
+          withA(p, () => txt(ch, 170 - i * 110, -132 + k * 50, { s: 40, w: 900, f: F.serif, c: hi ? C.red : C.ink }));
+        }));
+        txt('杜牧', -230, 170, { s: 26, w: 700, f: F.serif, c: '#6b5a45' });
+      });
+      nameplate(520, 640, '杜牧', 'Du Mu · 803–852', eo(prog(t, 37.0, 37.8)));
+      // 华清宫 + 一骑红尘
+      palace(520, 400, .7, eo(prog(t, 36.6, 37.6)));
+      const pr = prog(t, 40.6, 43.8);
+      if (pr > 0 && pr < 1) { const x = lerp(-40, 400, eo(pr)), y = lerp(520, 520, pr); redDust(x, y, t, 1, 0, 22); ctx.fillStyle = C.fg; ctx.beginPath(); ctx.arc(x, y, 7, 0, 6.283); ctx.fill(); }
+    });
+  });
+}
+function sceneBai(t) {
+  const a = win(t, 44.4, 53.2, .7, .8);
+  if (a <= 0) return;
+  withA(a, () => {
+    const pIn = eo(prog(t, 44.5, 45.6));
+    paperCard(lerp(1600, 1360, pIn), 360 + Math.sin(t * .7) * 4, 440, 400, .03, .95, () => {
+      txt('荔枝图序', 0, -160, { s: 26, w: 900, f: F.serif, c: '#6b5a45', ls: 8 });
+      ctx.fillStyle = 'rgba(80,60,40,.45)'; ctx.fillRect(-180, -138, 360, 1.5);
+      const cols = ['一日而色变', '二日而香变', '三日而味变', '四五日外', '色香味尽去矣'];
+      cols.forEach((col, i) => [...col].forEach((ch, k) => {
+        const hi = t > 48.5 && i >= 3;
+        txt(ch, 150 - i * 72, -100 + k * 42, { s: 34, w: 900, f: F.serif, c: hi ? C.red : C.ink });
+      }));
+      txt('白居易', -160, 150, { s: 22, w: 700, f: F.serif, c: '#6b5a45' });
+    });
+    // 新鲜度时间轴 Day 0–5
+    const x0 = 300, x1 = 1000, y = 560;
+    withA(eo(prog(t, 45.4, 46.2)), () => {
+      ctx.strokeStyle = 'rgba(234,234,242,.4)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      for (let d = 0; d <= 5; d++) { const x = lerp(x0, x1, d / 5); ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8); ctx.stroke(); txt(d === 0 ? '摘下' : `第${d}天`, x, y + 36, { s: 22, c: C.gray }); }
+      ctx.fillStyle = 'rgba(181,58,47,.18)'; ctx.fillRect(lerp(x0, x1, 4 / 5), y - 160, (x1 - x0) / 5, 160);
+      withA(eo(prog(t, 48.6, 49.4)), () => txt('色香味尽去', lerp(x0, x1, 4.5 / 5), y - 180, { s: 24, w: 700, c: C.warm }));
+    });
+    const d = 5 * eio(prog(t, 46.0, 51.6));
+    const fresh = clamp(1 - d / 4.5);
+    const lx = lerp(x0, x1, d / 5);
+    lychee(lx, y - 80 + Math.sin(t * 2) * 3, 46, fresh);
+    withA(eo(prog(t, 46.0, 46.6)), () => {
+      ctx.fillStyle = C.gold; ctx.beginPath(); ctx.moveTo(lx, y - 14); ctx.lineTo(lx - 8, y - 28); ctx.lineTo(lx + 8, y - 28); ctx.fill();
+    });
+    withA(eo(prog(t, 45.6, 46.4)), () => { txt('新鲜度', 300, 300, { s: 30, w: 700, al: 'left' }); txt(`${Math.round(fresh * 100)}%`, 300, 356, { s: 56, w: 900, f: F.gar, c: fresh > .4 ? C.gold : C.warm, al: 'left' }); });
+  });
+}
+// 地图大段：52–92
+function sceneMap(t) {
+  const a = win(t, 52.4, 108.8, .9, .9);
+  if (a <= 0) return;
+  const zoom = eio(prog(t, 92.4, 94.2));  // 进入驿道段时放大到荔枝道
+  ctx.save();
+  const zc = CITY.changan, zf = CITY.fuzhou;
+  const cx = (zc[0] + zf[0]) / 2, cy = (zc[1] + zf[1]) / 2;
+  const zs = lerp(1, 1.55, zoom);
+  ctx.translate(lerp(cx, 760, zoom), lerp(cy, 450, zoom)); ctx.scale(zs, zs); ctx.translate(-cx, -cy);
+  withA(a, () => {
+    mapBase(t, eo(prog(t, 52.5, 53.6)) * (1 - .5 * zoom));
+    withA(eo(prog(t, 52.8, 53.6)), () => { palace(CITY.changan[0], CITY.changan[1] - 56, .16); cityDot(CITY.changan, '长安', 'Chang’an', { pulse: (t * .6) % 1 }); });
+    // 候选产地
+    withA(eo(prog(t, 56.6, 57.4)) * (1 - zoom), () => cityDot(CITY.guang, '岭南', null, { c: C.warm, tc: C.warm, dy: -16 }));
+    withA(eo(prog(t, 57.6, 58.4)), () => cityDot(CITY.fuzhou, '涪州', 'Fuzhou', { c: C.warm, tc: C.warm, dx: -18, al: 'right' }));
+    // 岭南路线：68.5 开始跑，跑不到
+    const lnA = eo(prog(t, 68.5, 69.2)) * (1 - eio(prog(t, 76.0, 77.0)) * .75) * (1 - zoom);
+    if (lnA > 0) withA(lnA, () => {
+      drawPoly(ROUTE_LN, 1, { strokeStyle: 'rgba(232,168,124,.45)', lineWidth: 3, lineCap: 'round', lineJoin: 'round' });
+      const p = clamp((t - 68.8) / 3.4) * .62;  // 只跑到一半多，荔枝就坏了
+      if (t < 76) {
+        const [x, y] = rider(ROUTE_LN, p, t);
+        const fresh = clamp(1 - p / .55);
+        lychee(x + 26, y - 26, 16, fresh);
+        if (p > .55) withA(prog(t, 71.6, 72.0), () => txt('✕', x + 26, y - 64, { s: 40, w: 900, c: C.warm }));
+      }
+    });
+    // 荔枝道：80.5 开始跑，刚好到
+    const fuA = eo(prog(t, 76.6, 77.4));
+    if (fuA > 0) withA(fuA, () => {
+      drawPoly(ROUTE_FU, eio(prog(t, 76.6, 78.4)), { strokeStyle: C.gold, lineWidth: lerp(4, 3, zoom), lineCap: 'round', lineJoin: 'round' });
+      withA(eo(prog(t, 77.6, 78.4)) * (1 - zoom), () => {
+        const [mx, my] = polyAt(ROUTE_FU, .5);
+        txt('荔枝道', mx + 30, my, { s: 28, w: 900, f: F.serif, c: C.gold, al: 'left' });
+        txt('≈ 2240 里', mx + 30, my + 36, { s: 24, w: 700, f: F.gar, c: C.gold, al: 'left' });
+      });
+      if (t > 80.5 && t < 92.6) {
+        const p = eio(prog(t, 80.6, 86.2));
+        const [x, y] = rider(ROUTE_FU, p, t);
+        lychee(x - 30, y + 10, 16, clamp(1 - p * .82));
+        if (p >= 1) withA(prog(t, 86.2, 86.8), () => txt('✓', CITY.changan[0] + 60, CITY.changan[1] + 40, { s: 44, w: 900, c: C.gold }));
+      }
+    });
+    // 驿道段：七十五座驿站
+    if (zoom > 0) withA(zoom * win(t, 92.4, 108.8, .1, .8), () => {
+      const N = 75;
+      const lit = clamp((t - 96.5) / 8.0);
+      for (let i = 0; i <= N; i++) {
+        const [x, y] = polyAt(ROUTE_FU, i / N);
+        const on = i / N <= lit;
+        ctx.fillStyle = on ? C.gold : 'rgba(234,234,242,.35)';
+        ctx.beginPath(); ctx.arc(x, y, on ? 4 : 2.6, 0, 6.283); ctx.fill();
+      }
+      if (lit > 0 && lit < 1) {
+        const [x, y] = rider(ROUTE_FU, lit, t);
+        // 每过一驿，换一匹马：一个金色小环
+        const k = Math.floor(lit * N), fr = lit * N - k;
+        const [sx, sy] = polyAt(ROUTE_FU, k / N);
+        ctx.strokeStyle = `rgba(201,169,106,${1 - fr})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sx, sy, 6 + fr * 20, 0, 6.283); ctx.stroke();
+      }
+    });
+  });
+  ctx.restore();
+  // 右侧计算面板（不随地图缩放）
+  sidePanel(t);
+}
+function sidePanel(t) {
+  const x = 1440;
+  // 驿速卡
+  const sp = win(t, 60.5, 76.4, .6, .6);
+  withA(sp, () => {
+    ctx.fillStyle = 'rgba(18,18,48,.82)'; ctx.strokeStyle = 'rgba(201,169,106,.5)'; ctx.lineWidth = 1.5;
+    rr(x - 230, 170, 460, 470, 12); ctx.fill(); ctx.stroke();
+    txt('唐代驿速', x, 216, { s: 30, w: 900, f: F.serif, c: C.gold });
+    txt('Tang post speeds', x, 252, { s: 22, f: F.gar, it: 1, c: C.gray });
+    const rows = [[60.8, '平常', '70', '里 / 日', C.fg], [64.8, '最急 · 赦书', '500', '里 / 日', C.gold]];
+    rows.forEach(([t0, k, v, u, c], i) => withA(eo(prog(t, t0, t0 + .6)), () => {
+      const y = 330 + i * 110;
+      txt(k, x - 190, y, { s: 26, w: 700, c: C.gray, al: 'left' });
+      const n = Math.round(+v * eo(prog(t, t0, t0 + 1.2)));
+      txt(String(n), x + 120, y, { s: 54, w: 600, f: F.gar, c, al: 'right' });
+      txt(u, x + 132, y + 6, { s: 22, c: C.gray, al: 'left' });
+    }));
+    withA(eo(prog(t, 68.6, 69.2)), () => {
+      ctx.fillStyle = 'rgba(234,234,242,.2)'; ctx.fillRect(x - 190, 480, 380, 1);
+      txt('岭南 → 长安', x - 190, 524, { s: 26, w: 700, al: 'left' });
+      txt('数千里 ÷ 500', x - 190, 566, { s: 22, c: C.gray, al: 'left' });
+      txt('≥ 6 天', x + 190, 546, { s: 46, w: 900, c: C.warm, al: 'right' });
+    });
+    withA(eo(prog(t, 72.6, 73.4)), () => {
+      txt('✕ 来不及', x + 190, 604, { s: 24, w: 700, c: C.warm, al: 'right' });
+    });
+  });
+  // 涪州计算卡
+  const fp = win(t, 80.5, 92.4, .6, .6);
+  withA(fp, () => {
+    ctx.fillStyle = 'rgba(18,18,48,.82)'; ctx.strokeStyle = 'rgba(201,169,106,.5)'; ctx.lineWidth = 1.5;
+    rr(x - 230, 170, 460, 470, 12); ctx.fill(); ctx.stroke();
+    txt('涪州 → 长安', x, 216, { s: 30, w: 900, f: F.serif, c: C.gold });
+    txt('2240 ÷ 500', x, 270, { s: 34, w: 600, f: F.gar, c: C.fg });
+    const d = 4.5 * eio(prog(t, 80.6, 86.2));
+    txt(`${d.toFixed(1)} 天`, x, 350, { s: 72, w: 900, c: C.gold });
+    // 小进度：0–5 天，红区 4–5
+    const bx0 = x - 190, bx1 = x + 190, by = 450;
+    ctx.fillStyle = 'rgba(181,58,47,.3)'; ctx.fillRect(lerp(bx0, bx1, .8), by - 16, (bx1 - bx0) * .2, 32);
+    ctx.strokeStyle = 'rgba(234,234,242,.4)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(bx0, by); ctx.lineTo(bx1, by); ctx.stroke();
+    for (let k = 0; k <= 5; k++) txt(String(k), lerp(bx0, bx1, k / 5), by + 32, { s: 20, c: C.gray });
+    ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(lerp(bx0, bx1, d / 5), by, 9, 0, 6.283); ctx.fill();
+    txt('天', bx1 + 24, by + 32, { s: 20, c: C.gray });
+    withA(eo(prog(t, 84.6, 85.4)), () => txt('擦着变质的边', x, 560, { s: 30, w: 700, c: C.warm }));
+    withA(eo(prog(t, 88.6, 89.4)), () => txt('苏轼：天宝岁贡取之涪', x, 610, { s: 24, w: 700, f: F.serif, c: C.gold }));
+  });
+  // 严耕望
+  withA(win(t, 72.6, 76.4, .5, .4), () => nameplate(x, 720, '严耕望', 'Yan Gengwang · 1916–1996'));
+  // 驿道段
+  const rp = win(t, 92.6, 108.6, .6, .6);
+  withA(rp, () => {
+    ctx.fillStyle = 'rgba(18,18,48,.82)'; ctx.strokeStyle = 'rgba(201,169,106,.5)'; ctx.lineWidth = 1.5;
+    rr(x - 230, 170, 460, 470, 12); ctx.fill(); ctx.stroke();
+    txt('约 30 里 一驿', x, 224, { s: 32, w: 900, f: F.serif, c: C.gold });
+    txt('a station every ~30 li', x, 262, { s: 22, f: F.gar, it: 1, c: C.gray });
+    const n = Math.round(75 * clamp((t - 96.5) / 8.0));
+    withA(eo(prog(t, 96.5, 97.2)), () => {
+      txt('第', x - 120, 360, { s: 30, w: 700, c: C.gray });
+      txt(String(n), x + 10, 352, { s: 96, w: 600, f: F.gar, c: C.gold });
+      txt('驿', x + 130, 360, { s: 30, w: 700, c: C.gray });
+    });
+    withA(eo(prog(t, 100.6, 101.4)), () => {
+      txt(`换马 × ${n}`, x, 460, { s: 30, w: 700 });
+      txt(`换人 × ${Math.max(1, Math.round(n / 3))}+`, x, 508, { s: 30, w: 700 });
+      txt('示意 · 换人频率为推测', x, 552, { s: 20, c: C.gray });
+    });
+    withA(eo(prog(t, 104.6, 105.4)), () => txt('「一骑」= 一整条路', x, 608, { s: 30, w: 900, f: F.serif, c: C.gold }));
+  });
+}
+function sceneEnd(t) {
+  const a = win(t, 108.4, 124.8, .8, .7);
+  if (a <= 0) return;
+  withA(a, () => {
+    // 地图回到全景，叛军红潮从东北压来
+    mapBase(t, .7);
+    drawPoly(ROUTE_FU, 1, { strokeStyle: 'rgba(201,169,106,.6)', lineWidth: 3, lineCap: 'round', lineJoin: 'round' });
+    cityDot(CITY.changan, '长安', null, { s: 26 });
+    const war = eio(prog(t, 108.8, 112.4));
+    if (war > 0) {
+      const [fx, fy] = [1320, 130];
+      const g = ctx.createRadialGradient(fx, fy, 10, fx, fy, 700 * war);
+      g.addColorStop(0, `rgba(181,58,47,${.45})`); g.addColorStop(.85, 'rgba(181,58,47,.12)'); g.addColorStop(1, 'rgba(181,58,47,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      withA(eo(prog(t, 109.0, 109.8)), () => {
+        txt('范阳 →', 1250, 160, { s: 26, w: 700, c: '#e0786a', al: 'left' });
+        txt('天宝十四载 · 755', 1240, 210, { s: 34, w: 900, f: F.serif, c: '#e0786a', al: 'left' });
+        txt('安史之乱', 1240, 258, { s: 28, w: 700, c: C.fg, al: 'left' });
+      });
+    }
+    // 马嵬驿
+    const pm = eo(prog(t, 112.6, 113.6));
+    if (pm > 0) withA(pm, () => {
+      const [x, y] = CITY.mawei;
+      const [cx2, cy2] = CITY.changan;
+      // 出逃路线
+      ctx.strokeStyle = 'rgba(234,234,242,.7)'; ctx.lineWidth = 2; ctx.setLineDash([5, 6]);
+      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(lerp(cx2, x - 40, pm), lerp(cy2, y + 30, pm)); ctx.stroke(); ctx.setLineDash([]);
+      const [mx, my] = [x - 40, y + 30];
+      ctx.fillStyle = C.red; ctx.beginPath(); ctx.arc(mx, my, 10, 0, 6.283); ctx.fill();
+      txt('马嵬驿', mx - 20, my - 34, { s: 30, w: 900, f: F.serif, c: '#e0786a', al: 'right' });
+      txt('Mawei Station · 756', mx - 20, my + 34, { s: 22, f: F.gar, it: 1, c: C.gray, al: 'right' });
+    });
+    // 116.5–124：驿道再亮一次，荔枝落在马嵬驿
+    const glow = win(t, 116.5, 124.6, 1.0, .6);
+    if (glow > 0) withA(glow, () => {
+      drawPoly(ROUTE_FU, 1, { strokeStyle: C.gold, lineWidth: 5, lineCap: 'round', lineJoin: 'round', shadowColor: 'rgba(201,169,106,.8)', shadowBlur: 20 });
+      const p = eio(prog(t, 116.6, 119.6));
+      const [x, y] = polyAt(ROUTE_FU, p);
+      lychee(x, y - 24, 18, 1);
+      const pl = eo(prog(t, 120.5, 121.6));
+      if (pl > 0) {
+        const [mx, my] = [CITY.mawei[0] - 40, CITY.mawei[1] + 30];
+        lychee(lerp(CITY.changan[0], mx, pl), lerp(CITY.changan[1] - 24, my - 30, pl), 18, lerp(1, .55, pl));
+      }
+    });
+  });
+}
+function sceneOutro(t) {
+  const a1 = win(t, 124.4, 128.6, .6, .5);
+  withA(a1, () => {
+    const y = 430 + (1 - eo(prog(t, 124.4, 125.2))) * 20;
+    ctx.fillStyle = 'rgba(18,18,48,.88)'; ctx.strokeStyle = 'rgba(201,169,106,.6)'; ctx.lineWidth = 1.5;
+    rr(360, y - 180, 1200, 360, 14); ctx.fill(); ctx.stroke();
+    txt('声明', 960, y - 110, { s: 40, w: 900, f: F.serif, c: C.gold });
+    txt('Notes', 960, y - 66, { s: 24, f: F.gar, it: 1, c: C.gray });
+    txt('贵妃荔枝的产地，岭南说与涪州说至今并存；', 960, y + 4, { s: 30, w: 700 });
+    txt('路线、驿数、天数均为按史料记载的示意估算，不是精确复原。', 960, y + 54, { s: 26, c: '#C8C8D8' });
+    txt('Routes and numbers are illustrative estimates from historical records.', 960, y + 106, { s: 24, f: F.gar, it: 1, c: C.gray });
+  });
+  const a2 = win(t, 128.5, 136, .6, .1);
+  withA(a2, () => {
+    const y0 = 170;
+    txt('参考 · References', 960, y0, { s: 34, w: 900, f: F.serif, c: C.gold });
+    const refs = [
+      '欧阳修、宋祁《新唐书 · 后妃传 · 杨贵妃》',
+      '杜牧《过华清宫绝句三首》 · 白居易《荔枝图序》 · 苏轼《荔支叹》',
+      '《唐六典》驿制 · 乐史《太平寰宇记》“荔枝道”',
+      '严耕望《唐代交通图考》',
+    ];
+    refs.forEach((r, i) => withA(eo(prog(t, 128.8 + i * .2, 129.4 + i * .2)), () => txt(r, 960, y0 + 74 + i * 54, { s: 28, f: F.serif, w: 700, c: '#C8C8D8' })));
+    withA(eo(prog(t, 130.0, 130.8)), () => {
+      ctx.strokeStyle = 'rgba(201,169,106,.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(760, 470); ctx.lineTo(1160, 470); ctx.stroke();
+      txt(AUTHOR + ' 出品', 960, 526, { s: 36, w: 700, c: C.gold });
+      txt('本片由 AI 用代码生成 · 无实拍素材 · 地图与人物均为示意', 960, 578, { s: 24, c: C.gray });
+      lychee(960, 680, 34 + Math.sin(t * 2) * 1.5, 1, Math.sin(t) * .05);
+    });
+  });
+}
+
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  drawBG(t);
+  sceneHook(t);
+  sceneTitle(t);
+  sceneTang(t);
+  sceneBai(t);
+  sceneMap(t);
+  sceneEnd(t);
+  sceneOutro(t);
+  drawChrome(t);
+}
+
+function drawChrome(t) {
+  txt(AUTHOR, 56, 64, { s: 26, w: 700, c: C.fg, a: .5, al: 'left' });
+  for (const [a, b, s] of TAGS) {
+    const al = win(t, a, b, .5, .4);
+    if (al <= 0) continue;
+    withA(al, () => {
+      ctx.save(); ctx.font = font({ s: 24, w: 700 }); ctx.letterSpacing = '4px';
+      const w = ctx.measureText(s).width; ctx.restore();
+      const y = 64;
+      ctx.strokeStyle = 'rgba(201,169,106,.55)'; ctx.lineWidth = 1.5;
+      const L = 60 * eo(prog(t, a, a + .8));
+      ctx.beginPath(); ctx.moveTo(W / 2 - w / 2 - 24 - L, y); ctx.lineTo(W / 2 - w / 2 - 24, y);
+      ctx.moveTo(W / 2 + w / 2 + 24, y); ctx.lineTo(W / 2 + w / 2 + 24 + L, y); ctx.stroke();
+      txt(s, W / 2 + 2, y, { s: 24, w: 700, c: C.gold, ls: 4 });
+    });
+  }
+  for (const [a, b, s] of NOTES) {
+    const al = win(t, a, b, .4, .3);
+    if (al <= 0) continue;
+    withA(al, () => {
+      ctx.save(); ctx.font = font({ s: 25 }); const w = ctx.measureText(s).width; ctx.restore();
+      ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(W / 2 - w / 2 - 18, 778, 4, 0, 6.283); ctx.fill();
+      txt(s, W / 2 + 6, 778, { s: 25, c: '#A8A8BC' });
+    });
+  }
+  for (const [a, b, zh, en] of SUBS) {
+    const al = win(t, a, b, .35, .3);
+    if (al <= 0) continue;
+    const dy = (1 - eo(prog(t, a, a + .45))) * 8;
+    withA(al, () => {
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 12;
+      rich(zh, W / 2, 946 + dy, { s: 46, w: 700 });
+      txt(en, W / 2, 1001 + dy, { s: 29, f: F.gar, it: 1, c: C.gray });
+      ctx.restore();
+    });
+  }
+}
+
+// 做旧纸卡
+const SPECK = (() => { const r = rng(42); return Array.from({ length: 260 }, () => [r(), r(), r()]); })();
+function paperCard(x, y, w, h, rot, s, content) {
+  at(x, y, s, rot, () => {
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
+    ctx.fillStyle = C.paper; rr(-w / 2, -h / 2, w, h, 6); ctx.fill(); ctx.restore();
+    const g = ctx.createRadialGradient(0, 0, Math.min(w, h) * .2, 0, 0, Math.max(w, h) * .7);
+    g.addColorStop(0, 'rgba(255,250,235,0)'); g.addColorStop(1, 'rgba(140,110,70,.28)');
+    ctx.fillStyle = g; rr(-w / 2, -h / 2, w, h, 6); ctx.fill();
+    for (const [a, b, c] of SPECK) { ctx.fillStyle = `rgba(110,85,55,${.05 + c * .1})`; ctx.fillRect(-w / 2 + a * w, -h / 2 + b * h, 1.5 + c * 2, 1.5 + c * 2); }
+    ctx.strokeStyle = 'rgba(120,95,60,.35)'; ctx.lineWidth = 1.5; rr(-w / 2 + 14, -h / 2 + 14, w - 28, h - 28, 3); ctx.stroke();
+    content();
+  });
+}
+function seal(x, y, chars, s = 1) {
+  at(x, y, s, -0.1, () => {
+    ctx.fillStyle = 'rgba(181,58,47,.9)'; rr(-46, -46, 92, 92, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(237,228,211,.8)'; ctx.lineWidth = 2; rr(-40, -40, 80, 80, 5); ctx.stroke();
+    const c = [...chars];
+    const pos = c.length === 4 ? [[-18, -17], [18, -17], [-18, 18], [18, 18]] : c.map((_, i) => [0, (i - (c.length - 1) / 2) * 34]);
+    c.forEach((ch, i) => txt(ch, pos[i][0], pos[i][1], { s: c.length === 4 ? 30 : 32, w: 900, f: F.serif, c: C.paper }));
+  });
+}
+window.render = render;
+window.DURATION = DUR;
+// 字体子集按需加载：用本脚本出现过的全部字符去请求
+window.setup = async function (done) {
+  const sample = [...new Set(document.getElementById('main').textContent)].join('');
+  const specs = ['400 30px "Noto Sans SC"', '700 30px "Noto Sans SC"', '900 30px "Noto Sans SC"', '700 30px "Noto Serif SC"', '900 30px "Noto Serif SC"', '400 30px "EB Garamond"', 'italic 400 30px "EB Garamond"', '600 30px "EB Garamond"'];
+  await Promise.all(specs.map(s => document.fonts.load(s, sample)));
+  await document.fonts.ready;
+  done && done();
+};
+// 浏览器直接打开时循环预览
+window.setup().then(() => {
+  const t0 = performance.now();
+  const loop = () => { if (window.__RENDER_MODE__) return; render(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); };
+  loop();
+});
+</script>
+</body>
+</html>

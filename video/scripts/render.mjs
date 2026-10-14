@@ -2,6 +2,7 @@
 // 用法：
 //   node scripts/render.mjs --out build/video.mp4 [--fps 30] [--workers 4]
 //   node scripts/render.mjs --stills 3,30,46,70 --outdir build/stills   # 只出静帧
+//   --html ../lychee/index.html   渲染别的片子（默认 video/index.html）
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ const workers = +(args.workers || 4);
 async function openPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   page.on('pageerror', e => console.error('[页面错误]', e.message));
-  await page.goto('file://' + resolve(root, 'index.html'));
+  await page.goto('file://' + resolve(args.html || resolve(root, 'index.html')));
   await page.evaluate(() => { window.__RENDER_MODE__ = true; return window.setup(); });
   return page;
 }
